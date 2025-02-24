@@ -1,16 +1,14 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash
-from flask_mysqldb import MySQL
 
 app = Flask(__name__, template_folder='template')
 app.secret_key = 'many random bytes'
 
-# Configuración de la base de datos
-app.config['MYSQL_HOST'] = 'localhost'
-app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = ''
-app.config['MYSQL_DB'] = 'crud'
-app.config['MYSQL_CURSORCLASS'] = 'DictCursor'
-mysql = MySQL(app)
+# Datos en memoria (reemplazan la base de datos)
+usuarios = [
+    {"id": 1, "correo": "admin@example.com", "password": "admin123"}
+]
+
+students = []
 
 @app.route('/')
 def home():
@@ -18,20 +16,21 @@ def home():
 
 @app.route('/admin')
 def admin():
-    search_query = request.args.get('search', '')  
-    cur = mysql.connection.cursor()
-
+    search_query = request.args.get('search', '')
+    
+    # Filtrar estudiantes basado en la búsqueda
     if search_query:
-        cur.execute("""
-            SELECT * FROM students 
-            WHERE name LIKE %s OR email LIKE %s OR phone LIKE %s OR modelo LIKE %s
-        """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+        filtered_students = [
+            student for student in students
+            if (search_query.lower() in student['name'].lower() or
+                search_query.lower() in student['email'].lower() or
+                search_query.lower() in student['phone'].lower() or
+                search_query.lower() in student['modelo'].lower())
+        ]
     else:
-        cur.execute("SELECT * FROM students")
+        filtered_students = students
 
-    data = cur.fetchall()
-    cur.close()
-    return render_template('admin.html', students=data, search_query=search_query)
+    return render_template('admin.html', students=filtered_students, search_query=search_query)
 
 @app.route('/acceso-login', methods=["GET", "POST"])
 def login():
@@ -39,9 +38,8 @@ def login():
         _correo = request.form['txtCorreo']
         _password = request.form['txtPassword']
 
-        cur = mysql.connection.cursor()
-        cur.execute('SELECT * FROM usuarios WHERE correo = %s AND password = %s', (_correo, _password,))
-        account = cur.fetchone()
+        # Buscar el usuario en la lista de usuarios
+        account = next((user for user in usuarios if user['correo'] == _correo and user['password'] == _password), None)
 
         if account:
             session['logueado'] = True
@@ -59,53 +57,49 @@ def insert():
         modelo = request.form['modelo']
         estado = request.form['estado']
 
-        cur = mysql.connection.cursor()
-        cur.execute("""
-            INSERT INTO students (name, email, phone, modelo, estado)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (name, email, phone, modelo, estado))
-        mysql.connection.commit()
+        # Crear un nuevo estudiante
+        new_student = {
+            "id": len(students) + 1,  # ID autoincremental
+            "name": name,
+            "email": email,
+            "phone": phone,
+            "modelo": modelo,
+            "estado": estado
+        }
+        students.append(new_student)
         flash("Datos insertados correctamente")
         return redirect(url_for('admin'))
 
 @app.route('/update', methods=['POST'])
 def update():
     if request.method == 'POST':
-        id_data = request.form['id']
+        id_data = int(request.form['id'])
         name = request.form['name']
         email = request.form['email']
         phone = request.form['phone']
         modelo = request.form['modelo']
         estado = request.form['estado']
 
-        cur = mysql.connection.cursor()
-        cur.execute("""
-            UPDATE students 
-            SET name=%s, email=%s, phone=%s, modelo=%s, estado=%s
-            WHERE id=%s
-        """, (name, email, phone, modelo, estado, id_data))
-        mysql.connection.commit()
+        # Buscar y actualizar el estudiante
+        for student in students:
+            if student['id'] == id_data:
+                student['name'] = name
+                student['email'] = email
+                student['phone'] = phone
+                student['modelo'] = modelo
+                student['estado'] = estado
+                break
+
         flash("Datos actualizados correctamente")
         return redirect(url_for('admin'))
 
-@app.route('/delete/<string:id_data>', methods=['GET'])
+@app.route('/delete/<int:id_data>', methods=['GET'])
 def delete(id_data):
-    cur = mysql.connection.cursor()
-    cur.execute("DELETE FROM students WHERE id=%s", (id_data,))
-    mysql.connection.commit()
+    # Eliminar el estudiante
+    global students
+    students = [student for student in students if student['id'] != id_data]
     flash("Registro eliminado correctamente")
     return redirect(url_for('admin'))
 
 if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0', port=5000, threaded=True) 
-
-from flask import Flask, render_template
-
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return render_template('index.html') 
-
-if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)
